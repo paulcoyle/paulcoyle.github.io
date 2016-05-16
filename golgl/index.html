@@ -120,27 +120,29 @@
     </script>
   </head>
   <body>
-    <canvas id="gol" width="512" height="512"></canvas>
-    <canvas id="seed" width="512" height="512"></canvas>
+    <div id="container">
+      <canvas id="gol" width="512" height="512"></canvas>
+      <canvas id="seed" width="512" height="512"></canvas>
 
-    <div class="control-group">
-      <p>Initial State</p>
-      <button id="clear" type="button">Clear</button>
-      <button id="reseed" type="button">Seed</button>
-    </div>
+      <div class="control-group">
+        <p>Initial State</p>
+        <button id="clear" type="button">Clear</button>
+        <button id="reseed" type="button">Seed</button>
+      </div>
 
-    <div class="control-group">
-      <p>Playback</p>
-      <button id="step" type="button">Step</button>
-      <button id="play-stop" type="button">Play</button>
-      <label for="speed">Speed</label>
-      <input id="speed" type="range" min="0" max="2" value="2" step="1">
-      <span id="speed-value"></span>
-    </div>
+      <div class="control-group">
+        <p>Playback</p>
+        <button id="step" type="button">Step</button>
+        <button id="play-stop" type="button">Play</button>
+        <label for="speed">Speed</label>
+        <input id="speed" type="range" min="0" max="2" value="2" step="1">
+        <span id="speed-value"></span>
+      </div>
 
-    <div class="control-group">
-      <p>Ruleset</p>
-      <select id="ruleset"></select>
+      <div class="control-group">
+        <p>Ruleset</p>
+        <select id="ruleset"></select>
+      </div>
     </div>
 
     <script src="gol.js"></script>

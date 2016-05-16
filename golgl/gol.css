@@ -22,6 +22,11 @@ input[type=range] {
   color: #999;
 }
 
+#container {
+  width: 536px;
+  margin: 0px auto;
+}
+
 #gol {
   width: 512px;
   height: 512px;
