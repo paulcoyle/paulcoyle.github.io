@@ -5,20 +5,89 @@
 
 
   /*
+  * Drag Helper
+  */
+  (function(drag) {
+    drag.onDrag = createDragWatcher;
+
+    function createDragWatcher(element, handler) {
+      var initalPosition
+        , lastPosition;
+
+      element.addEventListener('mousedown', handleInitiation);
+
+      return function() {
+        cleanup();
+      };
+
+      function handleInitiation(event) {
+        initalPosition = lastPosition = {
+          x: event.pageX,
+          y: event.pageY
+        };
+
+        addDragListeners();
+      }
+
+      function handleMove(event) {
+        var currentPosition = {
+              x: event.pageX,
+              y: event.pageY
+            }
+          , delta = {
+              x: currentPosition.x - lastPosition.x,
+              y: currentPosition.y - lastPosition.y
+            }
+          ;
+
+        lastPosition = currentPosition;
+
+        handler(delta);
+      }
+
+      function handleCompletetion(event) {
+        removeDragListeners();
+        initalPosition = undefined;
+        lastPosition = undefined;
+      }
+
+      function addDragListeners() {
+        document.addEventListener('mousemove', handleMove);
+        document.addEventListener('mouseup', handleCompletetion);
+      }
+
+      function removeDragListeners() {
+        document.removeEventListener('mousemove', handleMove);
+        document.removeEventListener('mouseup', handleCompletetion);
+      }
+
+      function cleanup() {
+        element.removeEventListener('mousedown', handleInitiation);
+        removeDragListeners();
+      }
+    }
+  })(gol.drag || (gol.drag = {}));
+
+  /*
   * UI Controls
   */
-  (function(ui, render) {
-    var clearButton
+  (function(ui, drag, render) {
+    var displayElement
+      , displayDragDispose
+      , clearButton
       , seedButton
       , stepButton
       , playStopButton
       , speedSlider
       , speedValue
       , ruleSelect
+      , displayResetButton
+      , scaleSlider
+      , scaleValue
       , FAST = 2
       , NORMAL = 1
       , SLOW = 0
-      , speedLabels = ['Slow', 'Moderate', 'Fast']
+      , speedLabels = ['Slow', 'Normal', 'Fast']
       , state
       , rules =
         [ createRule('Conway\'s Life', [2, 3], [3])
@@ -49,6 +118,15 @@
     init();
 
     function init() {
+      displayElement = document.getElementById('gol');
+      displayElement.addEventListener('mousewheel', function(event) {
+        scaleDelta(Math.sign(event.deltaY) * -0.1);
+        event.preventDefault();
+      });
+      displayDragDispose = drag.onDrag(displayElement, function(delta) {
+        panBy(delta);
+      });
+
       clearButton = document.getElementById('clear');
       clearButton.addEventListener('click', function() {
         clear();
@@ -85,9 +163,23 @@
         setRules(rule.birth, rule.death);
       });
 
+      displayResetButton = document.getElementById('display-reset');
+      displayResetButton.addEventListener('click', function() {
+        resetDisplay();
+      });
+
+      scaleSlider = document.getElementById('scale');
+      scaleSlider.addEventListener('input', function() {
+        scale(this.valueAsNumber);
+      });
+
+      scaleValue = document.getElementById('scale-value');
+
       state = {
         playing: false,
-        speed: FAST,
+        speed: NORMAL,
+        scale: 1.0,
+        pan: { x: 0.0, y: 0.0 },
         nextRender: Date.now(),
         ruleset: 0
       };
@@ -127,6 +219,38 @@
       render.setDeaths(deaths);
     }
 
+    function scale(k) {
+      k = Math.min(10, Math.max(1, k));
+
+      state.scale = k;
+      scaleSlider.value = k;
+      updateControls();
+      render.setScale(k);
+      render.draw();
+    }
+
+    function panBy(offsets) {
+      panTo({
+        x: state.pan.x + offsets.x / state.scale,
+        y: state.pan.y + offsets.y / state.scale
+      });
+    }
+
+    function panTo(offsets) {
+      state.pan = offsets;
+      render.setPan(state.pan.x, state.pan.y);
+      render.draw();
+    }
+
+    function scaleDelta(delta) {
+      scale(state.scale + delta);
+    }
+
+    function resetDisplay() {
+      scale(1.0);
+      panTo({x: 0.0, y: 0.0});
+    }
+
     function togglePlayback() {
       if (state.playing === true) {
         stop();
@@ -138,7 +262,9 @@
     function updateControls() {
       stepButton.disabled = state.playing;
       playStopButton.innerHTML = (state.playing === true) ? 'Stop' : 'Play';
+      speedSlider.value = state.speed;
       speedValue.innerHTML = speedLabels[state.speed];
+      scaleValue.innerHTML = 'x' + (Math.round(state.scale * 10) / 10);
     }
 
     function runPlayback() {
@@ -185,8 +311,10 @@
         select.appendChild(option);
       }
     }
-  })(gol.ui || (gol.ui = {}), gol.render || (gol.render = {}));
-
+  })(gol.ui || (gol.ui = {})
+   , gol.drag || (gol.drag = {})
+   , gol.render || (gol.render = {})
+   );
 
   /*
   * Rendering
@@ -202,6 +330,8 @@
       , frameBufferIndex
       , birthRule
       , deathRule
+      , drawScale
+      , drawPan
       ;
 
     render.clear = clear;
@@ -210,6 +340,8 @@
     render.step = computeNextCycle;
     render.setBirths = setBirths;
     render.setDeaths = setDeaths;
+    render.setScale = setScale;
+    render.setPan = setPan;
 
     init();
     clear();
@@ -232,7 +364,7 @@
         'draw-frag-shader'
       );
       computeProgram = compileAndLinkProgram(
-        'draw-vert-shader',
+        'compute-vert-shader',
         'compute-frag-shader'
       );
 
@@ -253,6 +385,9 @@
 
       birthRule = fillArrayToSize([2, 3], 8, -1);
       deathRule = fillArrayToSize([3], 8, -1);
+
+      drawScale = 1.0;
+      drawPan = [0.0, 0.0];
     }
 
     function clear() {
@@ -269,10 +404,10 @@
     }
 
     function seed() {
-      var ctx = seedCanvas.getContext('2d');
-      var blocksize = 5;
+      var ctx = seedCanvas.getContext('2d')
+        , blocksize = 20;
 
-      ctx.fillStyle = '#f00';
+      ctx.fillStyle = '#ff0';
       for (var i = 0; i < 400; i++) {
         ctx.fillRect(
           Math.round(Math.random() * (size.width - blocksize)),
@@ -297,6 +432,14 @@
       deathRule = fillArrayToSize(deaths.slice(), 8, -1);
     }
 
+    function setScale(k) {
+      drawScale = k;
+    }
+
+    function setPan(x, y) {
+      drawPan = [x, y];
+    }
+
     function fillArrayToSize(arr, size, value) {
       while (arr.length < size) {
         arr.push(value);
@@ -308,6 +451,7 @@
     function draw() {
       gl.useProgram(drawProgram);
       globalUniforms(drawProgram);
+      drawingUniforms(drawProgram);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
       gl.clear(gl.COLOR_BUFFER_BIT);
@@ -339,6 +483,14 @@
       gl.uniform2fv(pixelStepUniformLocation, [1/size.width, 1/size.height]);
     }
 
+    function drawingUniforms(program) {
+      var scaleUniformLocation = gl.getUniformLocation(program, 'scale')
+        , translateUniformLocation = gl.getUniformLocation(program, 'translate');
+
+      gl.uniform1f(scaleUniformLocation, drawScale);
+      gl.uniform2fv(translateUniformLocation, drawPan);
+    }
+
     function computeUniforms(program) {
       var birthUniformLocation = gl.getUniformLocation(program, 'birth')
         , deathUniformLocation = gl.getUniformLocation(program, 'death')
@@ -353,7 +505,7 @@
         , texUniformLocation = gl.getUniformLocation(program, 'tex');
 
       gl.enableVertexAttribArray(positionAttribLocation);
-      gl.vertexAttribPointer(positionAttribLocation, 3, gl.FLOAT, false, 12, 0);
+      gl.vertexAttribPointer(positionAttribLocation, 3, gl.FLOAT, false, 0, 0);
 
       gl.uniform1i(texUniformLocation, 0);
       gl.activeTexture(gl.TEXTURE0);
@@ -389,7 +541,8 @@
         , fragmentShaderScript = fetchShaderScriptById(fragmentShaderScriptId)
         , vertexShader = compileShader(vertexShaderScript)
         , fragmentShader = compileShader(fragmentShaderScript)
-        , program = gl.createProgram();
+        , program = gl.createProgram()
+        ;
 
       gl.attachShader(program, vertexShader);
       gl.attachShader(program, fragmentShader);
